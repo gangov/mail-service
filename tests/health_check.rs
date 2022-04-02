@@ -1,4 +1,7 @@
 use std::net::TcpListener;
+use sqlx::{Connection, PgConnection};
+use mail_service::startup::run;
+use mail_service::configuration::get_configuration;
 
 #[tokio::test]
 async fn health_check_works() {
@@ -18,6 +21,12 @@ async fn health_check_works() {
 #[tokio::test]
 async fn subscribe_should_return_200_for_valid_form_data() {
     let app_addr = spawn_app();
+    let config = get_configuration().expect("Can't get config");
+    let connection_string = config.database.connection_string();
+    let mut connection = PgConnection::connect(&connection_string)
+      .await
+      .expect("Can't connect to Postgres");
+
     let client = reqwest::Client::new();
 
     let body = "name=le%20guin&email=ursula_le_guin%40gmail.com";
@@ -31,6 +40,14 @@ async fn subscribe_should_return_200_for_valid_form_data() {
         .expect("failed to execute request");
 
     assert_eq!(200, response.status().as_u16());
+
+    let saved = sqlx::query!("SELECT email, name FROM subscriptions")
+      .fetch_one(&mut connection)
+      .await
+      .expect("Can't fetch subscription");
+
+    assert_eq!(saved.email, "ursula_le_guin%40gmail.com");
+    assert_eq!(saved.name, "le guin")
 }
 
 #[tokio::test]
@@ -65,7 +82,7 @@ async fn subscribe_should_throw_error_when_data_is_missing() {
 fn spawn_app() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to port");
     let port = listener.local_addr().unwrap().port();
-    let server = mail_service::run(listener).expect("Can't start server");
+    let server = run(listener).expect("Can't start server");
     let _ = tokio::spawn(server);
     format!("http://127.0.0.1:{}", port)
 }
