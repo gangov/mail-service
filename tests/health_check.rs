@@ -1,8 +1,23 @@
 use mail_service::configuration::{get_configuration, DatabaseSettings};
 use mail_service::startup::run;
+use mail_service::telemetry::{get_subscriber, init_subsciber};
+use once_cell::sync::Lazy;
+use secrecy::ExposeSecret;
 use sqlx::{Connection, Executor, PgConnection, PgPool};
 use std::net::TcpListener;
 use uuid::Uuid;
+
+static TRACING: Lazy<()> = Lazy::new(|| {
+    let default_filter_lvl = "info".to_string();
+    let subscriber_name = "testing".to_string();
+    if std::env::var("TEST_LOG").is_ok() {
+        let subscriber = get_subscriber(subscriber_name, default_filter_lvl, std::io::stdout);
+        init_subsciber(subscriber);
+    } else {
+        let subscriber = get_subscriber(subscriber_name, default_filter_lvl, std::io::sink);
+        init_subsciber(subscriber);
+    }
+});
 
 pub struct TestApp {
     pub address: String,
@@ -80,6 +95,8 @@ async fn subscribe_should_throw_error_when_data_is_missing() {
 }
 
 async fn spawn_app() -> TestApp {
+    Lazy::force(&TRACING);
+
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to port");
     let port = listener.local_addr().unwrap().port();
     let addr = format!("http://127.0.0.1:{}", port);
@@ -97,7 +114,7 @@ async fn spawn_app() -> TestApp {
 }
 
 pub async fn configure_db(config: &DatabaseSettings) -> PgPool {
-    let mut connection = PgConnection::connect(&config.connection_string_no_db())
+    let mut connection = PgConnection::connect(&config.connection_string_no_db().expose_secret())
         .await
         .expect("Can't connect to db");
     connection
@@ -105,7 +122,7 @@ pub async fn configure_db(config: &DatabaseSettings) -> PgPool {
         .await
         .expect("Can't create new database");
 
-    let connection_pool = PgPool::connect(&config.connection_string())
+    let connection_pool = PgPool::connect(&config.connection_string().expose_secret())
         .await
         .expect("Can't connect to Postgres");
     sqlx::migrate!("./migrations")
