@@ -2,7 +2,6 @@ use mail_service::configuration::{get_configuration, DatabaseSettings};
 use mail_service::startup::run;
 use mail_service::telemetry::{get_subscriber, init_subsciber};
 use once_cell::sync::Lazy;
-use secrecy::ExposeSecret;
 use sqlx::{Connection, Executor, PgConnection, PgPool};
 use std::net::TcpListener;
 use uuid::Uuid;
@@ -114,7 +113,7 @@ async fn spawn_app() -> TestApp {
 }
 
 pub async fn configure_db(config: &DatabaseSettings) -> PgPool {
-    let mut connection = PgConnection::connect(&config.connection_string_no_db().expose_secret())
+    let mut connection = PgConnection::connect_with(&config.without_db())
         .await
         .expect("Can't connect to db");
     connection
@@ -122,7 +121,7 @@ pub async fn configure_db(config: &DatabaseSettings) -> PgPool {
         .await
         .expect("Can't create new database");
 
-    let connection_pool = PgPool::connect(&config.connection_string().expose_secret())
+    let connection_pool = PgPool::connect_with(config.with_db())
         .await
         .expect("Can't connect to Postgres");
     sqlx::migrate!("./migrations")

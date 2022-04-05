@@ -1,8 +1,7 @@
 use mail_service::configuration::get_configuration;
 use mail_service::startup::run;
 use mail_service::telemetry::{get_subscriber, init_subsciber};
-use secrecy::ExposeSecret;
-use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use std::net::TcpListener;
 
 #[tokio::main]
@@ -11,10 +10,13 @@ async fn main() -> std::io::Result<()> {
     init_subsciber(subscriber);
 
     let configuration = get_configuration().expect("Can't get config");
-    let connection = PgPool::connect(configuration.database.connection_string().expose_secret())
-        .await
-        .expect("Can't connect to Postrgres");
-    let addr = format!("127.0.0.1:{}", configuration.application_port);
+    let connection = PgPoolOptions::new()
+        .connect_timeout(std::time::Duration::from_secs(2))
+        .connect_lazy_with(configuration.database.with_db());
+    let addr = format!(
+        "{}:{}",
+        configuration.application.host, configuration.application.port
+    );
     let listener = TcpListener::bind(addr).expect("Can't bind");
     run(listener, connection)?.await
 }
